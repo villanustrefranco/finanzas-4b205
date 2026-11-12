@@ -319,7 +319,8 @@ svg text.tot.over{fill:var(--neg)}
 .sd-row i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px}
 .sd-row .num{text-align:right;font-variant-numeric:tabular-nums}
 .sd-row .chev{color:var(--muted);font-size:18px;line-height:1}
-.sd-all{color:var(--accent);font-weight:600}#saldoDetail:empty{display:none}
+.sd-all{color:var(--accent);font-weight:600}
+.sd-skip{color:var(--muted);font-size:13px}#saldoDetail:empty{display:none}
 #saldoDetail{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .sd-info{cursor:default}
 .sd-info:active{background:none}
@@ -345,16 +346,22 @@ svg text.tot.over{fill:var(--neg)}
 @media (max-width:700px){ .grp-grid{gap:0} .grp-card{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:10px 2px} .grp-card:last-child{border-bottom:0} }
 .grp-f{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag.trip{background:rgba(27,175,122,.14);color:#12805a}
-@media (prefers-color-scheme: dark){ .tag.trip{color:#4cc483} }/* resumen: categorías que se suman o no */
-.cat-toggle button{border:1px solid var(--line);padding:3px 10px 3px 6px}
-.cat-toggle button .ck{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:4px;border:1.5px solid var(--muted);font-size:10px;font-weight:700;color:#fff;background:var(--accent);border-color:var(--accent)}
-.cat-toggle button.off{opacity:.55;text-decoration:line-through}
-.cat-toggle button.off .ck{background:none;border-color:var(--muted)}
-.cat-acts{margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+@media (prefers-color-scheme: dark){ .tag.trip{color:#4cc483} }/* resumen: categorías y meses que se suman o no (recuadro celeste = cuenta) */
+.cat-toggle button{border:1px solid var(--accent);background:var(--accent-soft);color:var(--text);padding:3px 10px}
+.cat-toggle button:hover{border-color:var(--accent)}
+.cat-toggle button.off{background:none;border-color:var(--line);color:var(--muted);opacity:1;text-decoration:line-through}
+.cat-toggle button.off i{opacity:.4}
+.mon-pick{margin:-4px 0 14px}
+.mon-pick summary{cursor:pointer;font-size:13px;padding:4px 0;list-style-position:inside}
+.mon-pick .cat-toggle button{font-size:12px;padding:3px 9px}
+.skip-row td{opacity:.5}
+.skip-row td:first-child{opacity:1}
+.mon-tg{background:none;border:0;padding:0 6px 0 0;cursor:pointer;color:var(--accent);font-size:12px}
+.skip-row .mon-tg{color:var(--muted)}.cat-acts{margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
 .cat-note{color:var(--warn)}
 button.lk{background:none;border:0;padding:0;font:inherit;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline}
 .kpi-note{grid-column:1 / -1;color:var(--warn);background:var(--warn-soft);border-radius:8px;padding:6px 10px}
-@media (max-width:700px){ .cat-toggle{gap:6px} .cat-toggle button{padding:5px 10px 5px 6px} }</style>
+@media (max-width:700px){ .cat-toggle{gap:6px} .cat-toggle button{padding:5px 11px} }</style>
 </head>
 <body>
 <header>
@@ -859,6 +866,10 @@ function personSelect(id, val, withAll=true){
 // categorías que se sacan del Resumen (preferencia de cada navegador)
 const hiddenCats = new Set((() => { try { return JSON.parse(localStorage.getItem('finanzas4b205.hiddenCats')) || []; } catch(e){ return []; } })());
 const saveHiddenCats = () => { try { localStorage.setItem('finanzas4b205.hiddenCats', JSON.stringify([...hiddenCats])); } catch(e){} };
+// meses que no cuentan para promedios, saldo acumulado y totales (preferencia de cada navegador)
+const hiddenMonths = new Set((() => { try { return JSON.parse(localStorage.getItem('finanzas4b205.hiddenMonths')) || []; } catch(e){ return []; } })());
+const saveHiddenMonths = () => { try { localStorage.setItem('finanzas4b205.hiddenMonths', JSON.stringify([...hiddenMonths])); } catch(e){} };
+const toggleMonth = m => { if (hiddenMonths.has(m)) hiddenMonths.delete(m); else hiddenMonths.add(m); saveHiddenMonths(); };
 const incomeFor = (personId, m) => becaFor(m).total * (personId === 'ALL' ? S.people.length : 1);
 
 function renderResumen(main){
@@ -874,25 +885,35 @@ function renderResumen(main){
   const hiddenHere = allCats.filter(c => hiddenCats.has(c));
   ui.focusCat = cats.length === 1 && allCats.length > 1 ? cats[0] : null;   // una sola categoría: escala propia, sin la línea de ingreso
   const totalOf = m => cats.reduce((a,c) => a + (mat[m]?.[c] || 0), 0);
-  const closed = months.filter(m => m < cur);
+  const lastClosed = months.filter(m => m < cur).pop();
+  // los meses sacados de la cuenta se siguen viendo (atenuados) pero no entran en promedios, acumulado ni totales
+  const skipped = months.filter(m => hiddenMonths.has(m));
+  const counted = months.filter(m => !hiddenMonths.has(m));
+  const closed = counted.filter(m => m < cur);
   const avg = closed.length ? closed.reduce((a,m)=>a+totalOf(m),0) / closed.length : 0;
   const catAvg = c => closed.length ? closed.reduce((a,m)=>a+(mat[m]?.[c]||0),0)/closed.length : 0;
-  const lastClosed = closed[closed.length-1];
 
-  // saldo = ingreso - gasto; acumulado dentro del período elegido
+  // saldo = ingreso - gasto; acumulado dentro del período elegido (sin los meses sacados)
   let acc = 0;
-  const saldo = months.map(m => { const ingreso = incomeFor(ui.person, m), gasto = totalOf(m), s = ingreso - gasto; acc += s;
-    return { m, ingreso, gasto, saldo: s, acum: acc, current: m === cur }; });
+  const saldo = months.map(m => { const ingreso = incomeFor(ui.person, m), gasto = totalOf(m), s = ingreso - gasto, skip = hiddenMonths.has(m); if (!skip) acc += s;
+    return { m, ingreso, gasto, saldo: s, acum: acc, current: m === cur, skip }; });
   const accClosed = saldo.filter(r => !r.current).pop()?.acum ?? 0;
-  const overMonths = saldo.filter(r => !r.current && r.saldo < 0).length;
+  const overMonths = saldo.filter(r => !r.current && !r.skip && r.saldo < 0).length;
+  const shortM = m => MESES[+m.slice(5)-1] + ' ' + m.slice(2,4);
 
   main.innerHTML = `
   <div class="row" style="margin-bottom:14px">
     <label>Persona ${personSelect('selPerson', ui.person)}</label>
     <label>Año <select id="selYear"><option value="all">Todos</option>${years.map(y=>`<option ${ui.year===y?'selected':''}>${y}</option>`).join('')}</select></label>
   </div>
+  <details class="mon-pick" id="monPick" ${ui.monPickOpen ? 'open' : ''}>
+    <summary>Meses que cuentan: ${skipped.length ? `<b>${counted.length} de ${months.length}</b> <span class="muted">· fuera: ${skipped.map(shortM).join(', ')}</span>` : '<b>todos</b>'}</summary>
+    <p class="small muted" style="margin:6px 0 8px">${TOUCH ? 'Tocá' : 'Clic en'} un mes para sacarlo de los promedios, el saldo acumulado y los totales (se sigue viendo, más claro). Sirve para no contar meses raros.</p>
+    <div class="legend cat-toggle">${months.map(m => `<button data-month="${m}" class="${hiddenMonths.has(m) ? 'off' : ''}" aria-pressed="${!hiddenMonths.has(m)}">${shortM(m)}${m === cur ? ' <span class="muted">(en curso)</span>' : ''}</button>`).join('')}</div>
+    ${skipped.length ? '<div class="cat-acts small"><button class="lk" id="monAll">Contar todos los meses</button></div>' : ''}
+  </details>
   <div class="kpis">
-    ${hiddenHere.length ? `<div class="kpi-note small">Sin contar ${hiddenHere.map(esc).join(", ")}</div>` : ""}
+    ${hiddenHere.length || skipped.length ? `<div class="kpi-note small">${[hiddenHere.length ? `Sin contar ${hiddenHere.map(esc).join(", ")}` : "", skipped.length ? `${skipped.length} mes${skipped.length > 1 ? "es" : ""} fuera de la cuenta (${skipped.map(shortM).join(", ")})` : ""].filter(Boolean).join(" · ")}</div>` : ""}
     <div class="kpi"><div class="muted small">Este mes (${monthLabel(cur)})</div><div class="v">${eur(totalOf(cur))}</div><div class="small muted">de ${eur(incomeFor(ui.person, cur))} de ingreso</div></div>
     <div class="kpi"><div class="muted small">Mes pasado${lastClosed?` (${monthLabel(lastClosed)})`:''}</div><div class="v">${eur(lastClosed?totalOf(lastClosed):0)}</div>
       ${lastClosed?`<div class="small ${saldo.find(r=>r.m===lastClosed).saldo>=0?'pos':'neg'}">saldo ${eur(saldo.find(r=>r.m===lastClosed).saldo)}</div>`:''}</div>
@@ -902,7 +923,7 @@ function renderResumen(main){
   </div>
   <div class="panel"><h2>Gasto por mes vs. ingreso</h2>
     <div class="legend cat-toggle" id="spendLegend">
-      ${allCats.map(c => { const on = !hiddenCats.has(c); return `<button data-cat="${esc(c)}" class="${on ? '' : 'off'}" aria-pressed="${on}" title="${on ? 'Sacar' : 'Volver a sumar'} ${esc(c)}"><span class="ck">${on ? '✓' : ''}</span><i style="background:${catColor(c)};width:10px;height:10px;border-radius:3px;display:inline-block"></i>${esc(c)}</button>`; }).join('')}
+      ${allCats.map(c => { const on = !hiddenCats.has(c); return `<button data-cat="${esc(c)}" class="${on ? '' : 'off'}" aria-pressed="${on}" title="${on ? 'Sacar' : 'Volver a sumar'} ${esc(c)}"><i style="background:${catColor(c)};width:10px;height:10px;border-radius:3px;display:inline-block"></i>${esc(c)}</button>`; }).join('')}
       ${ui.focusCat ? '' : '<span class="small muted" style="display:inline-flex;align-items:center;gap:6px;padding:2px 8px"><span class="swl"></span>Ingreso del mes</span>'}
     </div>
     <div class="cat-acts small">
@@ -923,13 +944,13 @@ function renderResumen(main){
   <div class="table-wrap sticky1"><table>
     <thead><tr><th>Mes</th>${cats.map(c=>`<th class="num">${esc(c)}</th>`).join('')}<th class="num">Total</th><th class="num">Ingreso</th><th class="num">Saldo</th><th class="num">Acumulado</th></tr></thead>
     <tbody>
-    ${saldo.slice().reverse().map(r => `<tr><td>${monthLabel(r.m)}${r.current?' <span class="tag">en curso</span>':''}</td>
+    ${saldo.slice().reverse().map(r => `<tr class="${r.skip ? 'skip-row' : ''}"><td><button class="mon-tg" data-month="${r.m}" title="${r.skip ? 'Volver a contar este mes' : 'Sacar este mes de la cuenta'}">${r.skip ? '○' : '●'}</button>${monthLabel(r.m)}${r.current?' <span class="tag">en curso</span>':''}${r.skip ? ' <span class="tag warn">no cuenta</span>' : ''}</td>
       ${cats.map(c=>`<td class="num click" data-m="${r.m}" data-c="${esc(c)}">${eur0(mat[r.m]?.[c])}</td>`).join('')}
       <td class="num click" data-m="${r.m}"><b>${eur(r.gasto)}</b></td><td class="num">${eur(r.ingreso)}</td>
       <td class="num ${r.saldo>=0?'pos':'neg'}">${eur(r.saldo)}</td><td class="num ${r.acum>=0?'pos':'neg'}">${eur(r.acum)}</td></tr>`).join('')}
     <tr class="sub"><td>Promedio (cerrados)</td>${cats.map(c=>`<td class="num">${eur0(catAvg(c))}</td>`).join('')}<td class="num">${eur(avg)}</td><td></td><td></td><td></td></tr>
-    <tr class="total"><td>Total</td>${cats.map(c=>`<td class="num">${eur(months.reduce((a,m)=>a+(mat[m]?.[c]||0),0))}</td>`).join('')}
-      <td class="num">${eur(saldo.reduce((a,r)=>a+r.gasto,0))}</td><td class="num">${eur(saldo.reduce((a,r)=>a+r.ingreso,0))}</td><td class="num">${eur(acc)}</td><td></td></tr>
+    <tr class="total"><td>Total${skipped.length ? ` <span class="small" style="font-weight:400">(sin ${skipped.length} mes${skipped.length > 1 ? 'es' : ''})</span>` : ''}</td>${cats.map(c=>`<td class="num">${eur(counted.reduce((a,m)=>a+(mat[m]?.[c]||0),0))}</td>`).join('')}
+      <td class="num">${eur(saldo.filter(r=>!r.skip).reduce((a,r)=>a+r.gasto,0))}</td><td class="num">${eur(saldo.filter(r=>!r.skip).reduce((a,r)=>a+r.ingreso,0))}</td><td class="num">${eur(acc)}</td><td></td></tr>
     </tbody></table></div></div>`;
   $('#selPerson').onchange = e => { ui.person = e.target.value; render(); };
   $('#selYear').onchange = e => { ui.year = e.target.value; render(); };
@@ -945,6 +966,9 @@ function renderResumen(main){
     b.onmouseenter = () => { if (!ui.focusCat && !hiddenCats.has(b.dataset.cat)) highlightCat(b.dataset.cat); };
     b.onmouseleave = () => highlightCat(null);
   });
+  main.querySelectorAll('[data-month]').forEach(b => b.onclick = ev => { ev.stopPropagation(); toggleMonth(b.dataset.month); render(); });
+  $('#monAll') && ($('#monAll').onclick = () => { months.forEach(m => hiddenMonths.delete(m)); saveHiddenMonths(); render(); });
+  $('#monPick').ontoggle = e => { ui.monPickOpen = e.target.open; };
   $('#catAll') && ($('#catAll').onclick = () => { hiddenCats.clear(); saveHiddenCats(); render(); });
   $('#catNoTrips') && ($('#catNoTrips').onclick = () => { hiddenCats.add('Viajes'); saveHiddenCats(); render(); });
   bindSpendHover(months, cats, mat, ui.focusCat ? null : saldo);
@@ -1010,7 +1034,7 @@ function spendChart(months, cats, mat, saldo){
   s += `<line x1="${padL}" x2="${W-padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--axis)"/>`;
   const short = slot < 40;
   months.forEach((m, i) => {
-    const x = padL + i*slot + (slot-bw)/2, segs = [];
+    const x = padL + i*slot + (slot-bw)/2, segs = [], skO = hiddenMonths.has(m) ? ' opacity=".28"' : '';
     let accV = 0;
     const present = cats.filter(c => (mat[m]?.[c] || 0) > 0);
     present.forEach((c, k) => {
@@ -1019,15 +1043,15 @@ function spendChart(months, cats, mat, saldo){
       // 1px de separación (color de fondo) entre segmentos
       const gap = present.length > 1 && !isTop && (y0 - y1) > 3 ? 1 : 0;
       const h = Math.max(0, y0 - y1 - gap);
-      s += isTop ? `<path class="seg" data-i="${i}" data-c="${esc(c)}" d="${roundedBar(x, y1, bw, y0 - y1, 4)}" fill="${catColor(c)}"/>`
-                 : `<rect class="seg" data-i="${i}" data-c="${esc(c)}" x="${x}" y="${y1 + gap}" width="${bw}" height="${h}" fill="${catColor(c)}"/>`;
+      s += isTop ? `<path class="seg" data-i="${i}" data-c="${esc(c)}" d="${roundedBar(x, y1, bw, y0 - y1, 4)}" fill="${catColor(c)}"${skO}/>`
+                 : `<rect class="seg" data-i="${i}" data-c="${esc(c)}" x="${x}" y="${y1 + gap}" width="${bw}" height="${h}" fill="${catColor(c)}"${skO}/>`;
       segs.push({ c, v, y0, y1 });
       accV += v;
     });
     geom.segs[i] = { x, segs, total: totals[i] };
     const over = saldo && !saldo[i].current && totals[i] > saldo[i].ingreso;
     // en pantallas chicas no entran todos los totales ni todos los meses: el detalle queda en el tooltip
-    if (totals[i] > 0 && slot >= 24) s += `<text class="tot${over?' over':''}" x="${x + bw/2}" y="${y(totals[i]) - 6}" text-anchor="middle" font-size="${short?10:11}">${over?'▲':''}${eurShort(totals[i])}</text>`;
+    if (totals[i] > 0 && slot >= 24 && !skO) s += `<text class="tot${over?' over':''}" x="${x + bw/2}" y="${y(totals[i]) - 6}" text-anchor="middle" font-size="${short?10:11}">${over?'▲':''}${eurShort(totals[i])}</text>`;
     if (i % tickEvery(slot) === 0) s += `<text x="${x + bw/2}" y="${H - 10}" text-anchor="middle">${monthTick(m, i)}</text>`;
   });
   if (saldo){
@@ -1093,8 +1117,10 @@ function bindSpendHover(months, cats, mat, saldo){
       box.innerHTML = `<div class="sd-head"><div><b>${monthLabel(m)}</b> · total <b>${eur(col.total)}</b>${r ? `<div class="small muted">ingreso ${eur(r.ingreso)} · <span class="${r.saldo>=0?'pos':'neg'}">saldo ${eur(r.saldo)}</span></div>` : ''}</div>
           <button class="icon" id="sdClose" aria-label="Cerrar">✕</button></div>
         ${rows.map(sg => `<button class="sd-row" data-c="${esc(sg.c)}"><span><i style="background:${catColor(sg.c)}"></i>${esc(sg.c)}</span><span class="num">${eur(sg.v)}</span><span class="muted small num">${col.total ? Math.round(sg.v / col.total * 100) : 0}%</span><span class="chev">›</span></button>`).join('') || '<p class="muted small">Sin gastos.</p>'}
+        <button class="sd-row sd-skip"><span>${hiddenMonths.has(m) ? '↺ Volver a contar este mes' : '⊘ No contar este mes'}</span><span></span><span></span><span></span></button>
         <button class="sd-row sd-all"><span>Ver todos los gastos del mes</span><span></span><span></span><span class="chev">›</span></button>`;
       box.querySelectorAll('.sd-row').forEach(b => b.onclick = () => openGastos({ month: m, simp: b.dataset.c || ui.focusCat || '' }));
+      box.querySelector('.sd-skip').onclick = () => { toggleMonth(m); render(); };
       $('#sdClose').onclick = () => { ui.spendSel = null; show(-1); };
     };
     hit.addEventListener('click', ev => {
@@ -1134,15 +1160,15 @@ function saldoChart(rows){
   rows.forEach((r, i) => {
     const cx = padL + i*slot + slot/2, x = cx - bw/2, pos = r.saldo >= 0;
     const y0 = y(0), y1 = y(r.saldo), top = Math.min(y0, y1), h = Math.abs(y0 - y1);
-    if (h > 0.5) s += `<path d="${roundedBar(x, top, bw, h, 4, pos)}" fill="${pos ? 'var(--bar-pos)' : 'var(--bar-neg)'}" ${r.current ? 'fill-opacity=".35" stroke-dasharray="3 2" stroke="'+(pos?'var(--bar-pos)':'var(--bar-neg)')+'"' : ''}/>`;
+    if (h > 0.5) s += `<path d="${roundedBar(x, top, bw, h, 4, pos)}" ${r.skip ? 'opacity=".28"' : ''} fill="${pos ? 'var(--bar-pos)' : 'var(--bar-neg)'}" ${r.current ? 'fill-opacity=".35" stroke-dasharray="3 2" stroke="'+(pos?'var(--bar-pos)':'var(--bar-neg)')+'"' : ''}/>`;
     if (i % tickEvery(slot) === 0) s += `<text x="${cx}" y="${H - 10}" text-anchor="middle">${monthTick(r.m, i)}</text>`;
-    pts.push(r.current ? null : [cx, y(r.acum)]);
+    pts.push(r.current || r.skip ? null : [cx, y(r.acum)]);
   });
   const line = pts.filter(Boolean);
   if (line.length){
     s += `<polyline points="${line.map(p => p.join(',')).join(' ')}" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>`;
     line.forEach(([cx, cy]) => s += `<circle cx="${cx}" cy="${cy}" r="4" fill="var(--text)" stroke="var(--panel)" stroke-width="2"/>`);
-    const lastR = rows.filter(r => !r.current).pop(), [lx, ly] = line[line.length-1];
+    const lastR = rows.filter(r => !r.current && !r.skip).pop(), [lx, ly] = line[line.length-1];
     s += `<text class="tot" x="${lx}" y="${ly - 12}" text-anchor="end">Acum. ${eur(lastR.acum)}</text>`;
   }
   s += `<g id="saldoHover"></g><rect id="saldoHit" x="${padL}" y="0" width="${W-padL-padR}" height="${H}" fill="transparent"/></svg>`;
@@ -1168,8 +1194,10 @@ function bindSaldoHover(rows){
         ${line('Ingreso', r.ingreso)}${line('Gasto', r.gasto)}
         ${line(r.saldo >= 0 ? 'Ahorro del mes' : 'Gasto de más', r.saldo, r.saldo >= 0 ? 'pos' : 'neg')}
         ${line('Acumulado', r.acum, r.acum >= 0 ? 'pos' : 'neg')}
+        <button class="sd-row sd-skip"><span>${r.skip ? '↺ Volver a contar este mes' : '⊘ No contar este mes'}</span><span></span><span></span><span></span></button>
         <button class="sd-row sd-all"><span>Ver los gastos del mes</span><span></span><span></span><span class="chev">›</span></button>`;
       box.querySelector('.sd-all').onclick = () => openGastos({ month: r.m });
+      box.querySelector('.sd-skip').onclick = () => { toggleMonth(r.m); render(); };
       $('#sdsClose').onclick = () => { ui.saldoSel = null; show(-1); };
     };
     hit.addEventListener('click', ev => {
