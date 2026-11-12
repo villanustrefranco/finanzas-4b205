@@ -345,7 +345,16 @@ svg text.tot.over{fill:var(--neg)}
 @media (max-width:700px){ .grp-grid{gap:0} .grp-card{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:10px 2px} .grp-card:last-child{border-bottom:0} }
 .grp-f{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag.trip{background:rgba(27,175,122,.14);color:#12805a}
-@media (prefers-color-scheme: dark){ .tag.trip{color:#4cc483} }</style>
+@media (prefers-color-scheme: dark){ .tag.trip{color:#4cc483} }/* resumen: categorías que se suman o no */
+.cat-toggle button{border:1px solid var(--line);padding:3px 10px 3px 6px}
+.cat-toggle button .ck{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:4px;border:1.5px solid var(--muted);font-size:10px;font-weight:700;color:#fff;background:var(--accent);border-color:var(--accent)}
+.cat-toggle button.off{opacity:.55;text-decoration:line-through}
+.cat-toggle button.off .ck{background:none;border-color:var(--muted)}
+.cat-acts{margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.cat-note{color:var(--warn)}
+button.lk{background:none;border:0;padding:0;font:inherit;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline}
+.kpi-note{grid-column:1 / -1;color:var(--warn);background:var(--warn-soft);border-radius:8px;padding:6px 10px}
+@media (max-width:700px){ .cat-toggle{gap:6px} .cat-toggle button{padding:5px 10px 5px 6px} }</style>
 </head>
 <body>
 <header>
@@ -847,6 +856,9 @@ function personSelect(id, val, withAll=true){
 }
 
 /* ---------- Resumen mensual ---------- */
+// categorías que se sacan del Resumen (preferencia de cada navegador)
+const hiddenCats = new Set((() => { try { return JSON.parse(localStorage.getItem('finanzas4b205.hiddenCats')) || []; } catch(e){ return []; } })());
+const saveHiddenCats = () => { try { localStorage.setItem('finanzas4b205.hiddenCats', JSON.stringify([...hiddenCats])); } catch(e){} };
 const incomeFor = (personId, m) => becaFor(m).total * (personId === 'ALL' ? S.people.length : 1);
 
 function renderResumen(main){
@@ -856,8 +868,11 @@ function renderResumen(main){
   const allMonths = dataMonths.length ? monthRange(dataMonths[0], [dataMonths[dataMonths.length-1], cur].sort().pop()) : [];
   const years = [...new Set(allMonths.map(m => m.slice(0,4)))];
   const months = ui.year === 'all' ? allMonths : allMonths.filter(m => m.startsWith(ui.year));
-  const cats = spendCats().filter(c => months.some(m => mat[m]?.[c]));
-  if (ui.focusCat && !cats.includes(ui.focusCat)) ui.focusCat = null;
+  // categorías que se suman: se puede sacar cualquiera (p. ej. Viajes) y los totales, el saldo y la tabla se recalculan sin ella
+  const allCats = spendCats().filter(c => months.some(m => mat[m]?.[c]));
+  const cats = allCats.filter(c => !hiddenCats.has(c));
+  const hiddenHere = allCats.filter(c => hiddenCats.has(c));
+  ui.focusCat = cats.length === 1 && allCats.length > 1 ? cats[0] : null;   // una sola categoría: escala propia, sin la línea de ingreso
   const totalOf = m => cats.reduce((a,c) => a + (mat[m]?.[c] || 0), 0);
   const closed = months.filter(m => m < cur);
   const avg = closed.length ? closed.reduce((a,m)=>a+totalOf(m),0) / closed.length : 0;
@@ -877,6 +892,7 @@ function renderResumen(main){
     <label>Año <select id="selYear"><option value="all">Todos</option>${years.map(y=>`<option ${ui.year===y?'selected':''}>${y}</option>`).join('')}</select></label>
   </div>
   <div class="kpis">
+    ${hiddenHere.length ? `<div class="kpi-note small">Sin contar ${hiddenHere.map(esc).join(", ")}</div>` : ""}
     <div class="kpi"><div class="muted small">Este mes (${monthLabel(cur)})</div><div class="v">${eur(totalOf(cur))}</div><div class="small muted">de ${eur(incomeFor(ui.person, cur))} de ingreso</div></div>
     <div class="kpi"><div class="muted small">Mes pasado${lastClosed?` (${monthLabel(lastClosed)})`:''}</div><div class="v">${eur(lastClosed?totalOf(lastClosed):0)}</div>
       ${lastClosed?`<div class="small ${saldo.find(r=>r.m===lastClosed).saldo>=0?'pos':'neg'}">saldo ${eur(saldo.find(r=>r.m===lastClosed).saldo)}</div>`:''}</div>
@@ -885,13 +901,16 @@ function renderResumen(main){
       <div class="small muted">${overMonths ? `${overMonths} mes${overMonths>1?'es':''} con gasto mayor al ingreso` : 'ningún mes pasado del ingreso'}</div></div>
   </div>
   <div class="panel"><h2>Gasto por mes vs. ingreso</h2>
-    <div class="legend" id="spendLegend">
-      ${cats.map(c=>`<button data-cat="${esc(c)}" class="${ui.focusCat===c?'sel':ui.focusCat?'off':''}" title="Clic para ver solo esta categoría"><i style="background:${catColor(c)};width:10px;height:10px;border-radius:3px;display:inline-block"></i>${esc(c)}</button>`).join('')}
+    <div class="legend cat-toggle" id="spendLegend">
+      ${allCats.map(c => { const on = !hiddenCats.has(c); return `<button data-cat="${esc(c)}" class="${on ? '' : 'off'}" aria-pressed="${on}" title="${on ? 'Sacar' : 'Volver a sumar'} ${esc(c)}"><span class="ck">${on ? '✓' : ''}</span><i style="background:${catColor(c)};width:10px;height:10px;border-radius:3px;display:inline-block"></i>${esc(c)}</button>`; }).join('')}
       ${ui.focusCat ? '' : '<span class="small muted" style="display:inline-flex;align-items:center;gap:6px;padding:2px 8px"><span class="swl"></span>Ingreso del mes</span>'}
     </div>
-    ${ui.focusCat ? `<p class="small muted" style="margin:6px 0 0">Mostrando solo <b>${esc(ui.focusCat)}</b> (escala ajustada) · <a href="#" id="clearFocus">ver todas</a></p>`
-      : `<p class="small muted" style="margin:6px 0 0">${TOUCH ? 'Tocá un mes para ver su detalle abajo' : 'Pasá el mouse por las barras para ver el detalle'} · ${TOUCH ? 'tocá' : 'clic en'} una categoría para verla sola</p>`}
-    <div class="chart" id="spendChart">${spendChart(months, ui.focusCat ? [ui.focusCat] : cats, mat, ui.focusCat ? null : saldo)}</div>
+    <div class="cat-acts small">
+      ${hiddenHere.length ? `<span class="cat-note">Sin contar <b>${hiddenHere.map(esc).join(', ')}</b>: los totales, el saldo y la tabla no las incluyen.</span> <button class="lk" id="catAll">Sumar todas</button>`
+        : `<span class="muted">${TOUCH ? 'Tocá' : 'Clic en'} una categoría para sacarla de la cuenta.</span>${allCats.includes('Viajes') ? ' <button class="lk" id="catNoTrips">Sacar Viajes</button>' : ''}`}
+      ${cats.length > 1 ? ` <span class="muted">· ${TOUCH ? 'Tocá un mes para ver su detalle abajo' : 'Pasá el mouse por las barras para ver el detalle'}</span>` : ''}
+    </div>
+    <div class="chart" id="spendChart">${spendChart(months, cats, mat, ui.focusCat ? null : saldo)}</div>
   </div>
   <div class="panel"><h2>Saldo mensual y acumulado</h2>
     <div class="legend">
@@ -900,7 +919,7 @@ function renderResumen(main){
     </div>
     <div class="chart" id="saldoChart">${saldoChart(saldo)}</div>
   </div>
-  <div class="panel"><h2>Detalle por categoría <span class="muted small">— hacé clic en una celda para ver los gastos</span></h2>
+  <div class="panel"><h2>Detalle por categoría <span class="muted small">— hacé clic en una celda para ver los gastos${hiddenHere.length ? ` · sin ${hiddenHere.map(esc).join(", ")}` : ""}</span></h2>
   <div class="table-wrap sticky1"><table>
     <thead><tr><th>Mes</th>${cats.map(c=>`<th class="num">${esc(c)}</th>`).join('')}<th class="num">Total</th><th class="num">Ingreso</th><th class="num">Saldo</th><th class="num">Acumulado</th></tr></thead>
     <tbody>
@@ -916,12 +935,19 @@ function renderResumen(main){
   $('#selYear').onchange = e => { ui.year = e.target.value; render(); };
   main.querySelectorAll('td.click').forEach(td => td.onclick = () => openGastos({ month: td.dataset.m, simp: td.dataset.c || '' }));
   main.querySelectorAll('#spendLegend button').forEach(b => {
-    b.onclick = () => { ui.focusCat = ui.focusCat === b.dataset.cat ? null : b.dataset.cat; render(); };
-    b.onmouseenter = () => { if (!ui.focusCat) highlightCat(b.dataset.cat); };
+    b.onclick = () => {
+      const c = b.dataset.cat;
+      if (hiddenCats.has(c)) hiddenCats.delete(c);
+      else if (cats.length <= 1){ toast('Tiene que quedar al menos una categoría'); return; }
+      else hiddenCats.add(c);
+      saveHiddenCats(); render();
+    };
+    b.onmouseenter = () => { if (!ui.focusCat && !hiddenCats.has(b.dataset.cat)) highlightCat(b.dataset.cat); };
     b.onmouseleave = () => highlightCat(null);
   });
-  $('#clearFocus') && ($('#clearFocus').onclick = e => { e.preventDefault(); ui.focusCat = null; render(); });
-  bindSpendHover(months, ui.focusCat ? [ui.focusCat] : cats, mat, ui.focusCat ? null : saldo);
+  $('#catAll') && ($('#catAll').onclick = () => { hiddenCats.clear(); saveHiddenCats(); render(); });
+  $('#catNoTrips') && ($('#catNoTrips').onclick = () => { hiddenCats.add('Viajes'); saveHiddenCats(); render(); });
+  bindSpendHover(months, cats, mat, ui.focusCat ? null : saldo);
   bindSaldoHover(saldo);
 }
 
