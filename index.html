@@ -319,7 +319,12 @@ svg text.tot.over{fill:var(--neg)}
 .sd-row i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px}
 .sd-row .num{text-align:right;font-variant-numeric:tabular-nums}
 .sd-row .chev{color:var(--muted);font-size:18px;line-height:1}
-.sd-all{color:var(--accent);font-weight:600}</style>
+.sd-all{color:var(--accent);font-weight:600}#saldoDetail:empty{display:none}
+#saldoDetail{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sd-info{cursor:default}
+.sd-info:active{background:none}
+.back-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+@media (max-width:700px){ .back-bar{position:sticky;top:52px;z-index:40;background:var(--bg);padding:8px 0;margin:-8px 0 8px} }</style>
 </head>
 <body>
 <header>
@@ -785,7 +790,28 @@ function renderInner(){
   updateReviewBadge();
   renderFileStatus();
 }
-function go(v){ view = v; hideTip(); render(); window.scrollTo(0,0); }
+/* navegación: cada cambio de pestaña queda en el historial del navegador, así el botón Atrás (o el gesto del celular)
+   vuelve a la pestaña anterior. drillFrom = de dónde se vino cuando se abre Gastos con filtros desde un gráfico o tabla */
+const VIEW_NAMES = { resumen: 'Resumen', beca: 'Beca y saldo', presupuesto: 'Presupuesto', viajes: 'Viajes', planificar: 'Viajes', gastos: 'Gastos', revisar: 'Para revisar', importar: 'Importar', config: 'Configuración' };
+function go(v, { drillFrom = null } = {}){
+  try { history.replaceState({ ...(history.state || {}), view, scroll: scrollY }, ''); } catch(e){}
+  view = v; ui.drillFrom = drillFrom; hideTip(); render(); window.scrollTo(0,0);
+  try { history.pushState({ view: v, drillFrom }, ''); } catch(e){}
+}
+function goBack(){ if (history.state?.drillFrom) history.back(); else go(ui.drillFrom?.view || 'resumen'); }
+// abrir Gastos con filtros (desde un gráfico o una tabla) recordando la pestaña de origen
+function openGastos(f){
+  Object.assign(ui.filters, { month: '', simp: '', origin: '', q: '', person: ui.person === 'ALL' ? '' : ui.person, onlyIssues: false }, f);
+  go('gastos', { drillFrom: { view, label: VIEW_NAMES[view] || 'atrás' } });
+}
+try { history.replaceState({ view }, ''); } catch(e){}
+window.addEventListener('popstate', ev => {
+  const st = ev.state; if (!st?.view) return;
+  view = st.view; ui.drillFrom = st.drillFrom || null; hideTip();
+  $('#nav').classList.remove('open');
+  render(); setTimeout(() => window.scrollTo(0, st.scroll || 0), 0);
+});
+try { history.scrollRestoration = 'manual'; } catch(e){}
 $('#nav').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'navMore'){ $('#nav').classList.toggle('open'); return; }
@@ -867,10 +893,7 @@ function renderResumen(main){
     </tbody></table></div></div>`;
   $('#selPerson').onchange = e => { ui.person = e.target.value; render(); };
   $('#selYear').onchange = e => { ui.year = e.target.value; render(); };
-  main.querySelectorAll('td.click').forEach(td => td.onclick = () => {
-    Object.assign(ui.filters, { month: td.dataset.m, simp: td.dataset.c || '', origin:'', q:'', person: ui.person==='ALL'?'':ui.person, onlyIssues:false });
-    go('gastos');
-  });
+  main.querySelectorAll('td.click').forEach(td => td.onclick = () => openGastos({ month: td.dataset.m, simp: td.dataset.c || '' }));
   main.querySelectorAll('#spendLegend button').forEach(b => {
     b.onclick = () => { ui.focusCat = ui.focusCat === b.dataset.cat ? null : b.dataset.cat; render(); };
     b.onmouseenter = () => { if (!ui.focusCat) highlightCat(b.dataset.cat); };
@@ -1010,10 +1033,7 @@ function bindSpendHover(months, cats, mat, saldo){
       ev, { left: screenX(svg, x - 4), right: screenX(svg, x + w + 4) });
   };
   const leave = () => { layer.innerHTML = ''; highlightCat(null); hideTip(); };
-  const openGastos = (m, simp) => {
-    Object.assign(ui.filters, { month: m, simp: simp || '', origin:'', q:'', person: ui.person==='ALL'?'':ui.person, onlyIssues:false });
-    go('gastos');
-  };
+
   if (TOUCH){
     // celular: tocar un mes abre debajo del gráfico la tabla de ese mes; tocar una categoría abre esos gastos
     let box = $('#spendDetail');
@@ -1027,7 +1047,7 @@ function bindSpendHover(months, cats, mat, saldo){
           <button class="icon" id="sdClose" aria-label="Cerrar">✕</button></div>
         ${rows.map(sg => `<button class="sd-row" data-c="${esc(sg.c)}"><span><i style="background:${catColor(sg.c)}"></i>${esc(sg.c)}</span><span class="num">${eur(sg.v)}</span><span class="muted small num">${col.total ? Math.round(sg.v / col.total * 100) : 0}%</span><span class="chev">›</span></button>`).join('') || '<p class="muted small">Sin gastos.</p>'}
         <button class="sd-row sd-all"><span>Ver todos los gastos del mes</span><span></span><span></span><span class="chev">›</span></button>`;
-      box.querySelectorAll('.sd-row').forEach(b => b.onclick = () => openGastos(m, b.dataset.c || ui.focusCat));
+      box.querySelectorAll('.sd-row').forEach(b => b.onclick = () => openGastos({ month: m, simp: b.dataset.c || ui.focusCat || '' }));
       $('#sdClose').onclick = () => { ui.spendSel = null; show(-1); };
     };
     hit.addEventListener('click', ev => {
@@ -1045,8 +1065,7 @@ function bindSpendHover(months, cats, mat, saldo){
   hit.addEventListener('click', ev => {   // clic en una barra -> ver esos gastos
     const p = svgPoint(svg, ev), i = Math.floor((p.x - G.padL) / G.slot); if (!G.months[i]) return;
     hideTip();
-    Object.assign(ui.filters, { month: G.months[i], simp: ui.focusCat || '', origin:'', q:'', person: ui.person==='ALL'?'':ui.person, onlyIssues:false });
-    go('gastos');
+    openGastos({ month: G.months[i], simp: ui.focusCat || '' });
   });
   hit.style.cursor = 'pointer';
 }
@@ -1088,6 +1107,33 @@ function bindSaldoHover(rows){
   const svg = $('#saldoChart svg'), hit = $('#saldoHit'), layer = $('#saldoHover');
   if (!svg || !saldoGeom) return;
   const G = saldoGeom;
+  if (TOUCH){
+    let box = $('#saldoDetail');
+    if (!box){ box = document.createElement('div'); box.id = 'saldoDetail'; box.className = 'sd-box'; $('#saldoChart').after(box); }
+    const show = i => {
+      const r = rows[i];
+      if (!r){ box.innerHTML = ''; layer.innerHTML = ''; return; }
+      const cx = G.padL + i*G.slot + G.slot/2;
+      layer.innerHTML = `<rect x="${cx - G.slot/2 + 1}" y="${G.padT}" width="${G.slot - 2}" height="${G.H - G.padB - G.padT}" fill="var(--accent)" opacity=".14" rx="3"/>`;
+      const line = (k, v, cls = '') => `<div class="sd-row sd-info"><span>${k}</span><span class="num ${cls}">${eur(v)}</span><span></span><span></span></div>`;
+      box.innerHTML = `<div class="sd-head"><div><b>${monthLabel(r.m)}</b>${r.current ? ' <span class="tag">en curso</span>' : ''}${r.current ? '<div class="small muted">El gasto del mes todavía no está completo.</div>' : ''}</div>
+          <button class="icon" id="sdsClose" aria-label="Cerrar">✕</button></div>
+        ${line('Ingreso', r.ingreso)}${line('Gasto', r.gasto)}
+        ${line(r.saldo >= 0 ? 'Ahorro del mes' : 'Gasto de más', r.saldo, r.saldo >= 0 ? 'pos' : 'neg')}
+        ${line('Acumulado', r.acum, r.acum >= 0 ? 'pos' : 'neg')}
+        <button class="sd-row sd-all"><span>Ver los gastos del mes</span><span></span><span></span><span class="chev">›</span></button>`;
+      box.querySelector('.sd-all').onclick = () => openGastos({ month: r.m });
+      $('#sdsClose').onclick = () => { ui.saldoSel = null; show(-1); };
+    };
+    hit.addEventListener('click', ev => {
+      const p = svgPoint(svg, ev), i = Math.floor((p.x - G.padL) / G.slot); if (!rows[i]) return;
+      ui.saldoSel = rows[i].m; show(i);
+    });
+    const prev = ui.saldoSel ? rows.findIndex(r => r.m === ui.saldoSel) : -1;
+    if (prev >= 0) show(prev);
+    hit.style.cursor = 'pointer';
+    return;
+  }
   hit.addEventListener('pointermove', ev => {
     const p = svgPoint(svg, ev), i = Math.floor((p.x - G.padL) / G.slot), r = rows[i];
     if (!r){ layer.innerHTML = ''; hideTip(); return; }
@@ -2907,7 +2953,9 @@ function renderGastos(main){
   const sum = pid => list.filter(e=>!e.excluded).reduce((a,e)=>a+e.sharesEUR[pid],0);
   const issues = all.filter(e => e.issue).length;
   const LIMIT = 500;
+  const fDesc = [F.month && monthLabel(F.month), F.simp, F.origin, F.person && S.people.find(p => p.id === F.person)?.name].filter(Boolean).join(' · ');
   main.innerHTML = `
+  ${ui.drillFrom ? `<div class="back-bar"><button class="btn sec" id="goBack">← Volver a ${esc(ui.drillFrom.label)}</button>${fDesc ? `<span class="muted small">${esc(fDesc)}</span>` : ''}</div>` : ''}
   ${issues?`<div class="banner">⚠️ Hay ${issues} gasto(s) que no quedaron asignados a nadie (saldo 0 y la descripción no nombra a ninguno). <a href="#" id="seeIssues">Ver y corregir</a></div>`:''}
   <div class="panel">
   <div class="toolbar">
@@ -2946,6 +2994,7 @@ function renderGastos(main){
   $('#clearF') && ($('#clearF').onclick = () => { Object.assign(F, { month:'', origin:'', simp:'', q:'', person:'', onlyIssues:false, showExcluded:false }); render(); });
   $('#seeIssues') && ($('#seeIssues').onclick = ev => { ev.preventDefault(); Object.assign(F, { month:'', origin:'', simp:'', q:'', person:'', onlyIssues:true }); render(); });
   $('#addManual').onclick = () => editExpense(null);
+  $('#goBack') && ($('#goBack').onclick = goBack);
   main.querySelectorAll('.simpSel').forEach(sel => sel.onchange = () => {
     const e = S.expenses.find(x => x.id === sel.dataset.id);
     const ov = { ...(S.overrides[e.id] || {}) };
