@@ -324,7 +324,28 @@ svg text.tot.over{fill:var(--neg)}
 .sd-info{cursor:default}
 .sd-info:active{background:none}
 .back-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-@media (max-width:700px){ .back-bar{position:sticky;top:52px;z-index:40;background:var(--bg);padding:8px 0;margin:-8px 0 8px} }</style>
+@media (max-width:700px){ .back-bar{position:sticky;top:52px;z-index:40;background:var(--bg);padding:8px 0;margin:-8px 0 8px} }/* importar */
+.imp-top{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:start;margin-bottom:16px}
+.imp-top .panel{margin:0}
+@media (max-width:800px){ .imp-top{grid-template-columns:1fr} }
+#drop.imp-drop{display:flex;flex-direction:column;align-items:center;gap:4px;padding:28px 16px;border:2px dashed var(--line);border-radius:12px;background:var(--bg);color:var(--text);text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop.imp-drop:hover,#drop.imp-drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.imp-ico{font-size:30px;line-height:1.1}
+.imp-ico.sm{font-size:24px}
+.imp-help{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.imp-help summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;padding:4px 0}
+.imp-help ol,.imp-help ul{margin:6px 0 2px;padding-left:20px;font-size:13px;line-height:1.55}
+.imp-fold{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.grp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:10px}
+.grp-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:3px;min-width:0}
+.grp-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.grp-h b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grp-n{font-size:13px}
+.grp-num{font-size:18px;font-weight:700}
+@media (max-width:700px){ .grp-grid{gap:0} .grp-card{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:10px 2px} .grp-card:last-child{border-bottom:0} }
+.grp-f{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag.trip{background:rgba(27,175,122,.14);color:#12805a}
+@media (prefers-color-scheme: dark){ .tag.trip{color:#4cc483} }</style>
 </head>
 <body>
 <header>
@@ -3067,31 +3088,78 @@ function whenClosed(dlg, fn){
 }
 
 /* ---------- Importar ---------- */
+function timeAgo(ts){
+  if (!ts) return '';
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return 'recién';
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.round(m / 60); if (h < 24) return `hace ${h} h`;
+  const d = Math.round(h / 24); if (d < 30) return `hace ${d} día${d !== 1 ? 's' : ''}`;
+  return new Date(ts).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 function renderImportar(main){
-  const imps = Object.entries(S.imports).sort((a,b) => b[1].at - a[1].at);
-  const counts = {}; for (const e of S.expenses) counts[e.origin] = (counts[e.origin]||0) + 1;
+  const counts = {}; for (const e of S.expenses) counts[e.origin] = (counts[e.origin] || 0) + 1;
+  const origins = [...new Set([...Object.keys(S.imports), ...Object.keys(counts)])];
+  const kind = o => o === 'Manual' ? 'manual' : groupOf(o)?.trip ? 'viaje' : 'depto';
+  const order = { depto: 0, viaje: 1, manual: 2 };
+  origins.sort((a, b) => order[kind(a)] - order[kind(b)] || (S.imports[b]?.maxDate || '').localeCompare(S.imports[a]?.maxDate || '') || a.localeCompare(b));
+  const day = d => d ? new Date(d + 'T12:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const where = !dirHandle ? '' : dirHandle.cloud ? 'Google Drive' : 'esta compu';
+  const saveNote = dirHandle && dirOk ? `Además se guardan en la carpeta <b>${esc(dirHandle.name)}</b> (${where}), como si los hubieras puesto ahí.`
+    : 'Conectá la carpeta data para que también queden guardados ahí.';
   main.innerHTML = `
-  ${canFolder ? `<div class="panel"><h2>Carpeta data</h2>
-    <p>Guardá los CSV que descargás de Splitwise en la carpeta <b>data</b> (sin subcarpetas; podés dejar los viejos, se usa el más completo de cada grupo).
-    Cada vez que abrís la app se leen solos; si agregaste uno con la app abierta, tocá <b>↻ Sincronizar</b>.</p>
-    ${dirHandle ? (dirOk ? `<button class="btn" onclick="syncFolder(true)">↻ Sincronizar ahora</button>` : `<button class="btn" onclick="reconnectFolder()">📁 Abrir carpeta ${esc(dirHandle.name)}</button>`)
-      : `<button class="btn" onclick="connectFolder()">📁 Conectar carpeta data</button>`}</div>` : ''}
-  <div class="panel"><h2>Importar CSV a mano</h2>
-    <label id="drop">Arrastrá acá uno o varios CSV exportados de Splitwise, o hacé clic para elegirlos.
-      <input type="file" id="fileIn" accept=".csv,text/csv" multiple hidden></label>
-    <p class="muted small" style="margin-top:12px">Cada CSV de Splitwise trae el historial completo del grupo, así que al importarlo se <b>reemplazan</b> los gastos de ese grupo por los del archivo
-      (los cambios de categoría y reparto que hayas hecho a mano se conservan). Las filas "Solde total" se ignoran; los pagos entre ustedes quedan como categoría <i>Pagos</i> y no suman al gasto.</p>
+  <div class="imp-top">
+    <div class="panel imp-up">
+      <h2>Subir CSV de Splitwise</h2>
+      <label id="drop" class="imp-drop">
+        <span class="imp-ico">⬆️</span>
+        <b>${TOUCH ? 'Tocá para elegir los CSV' : 'Arrastrá acá los CSV'}</b>
+        <span class="muted small">${TOUCH ? 'Podés elegir varios a la vez' : 'o hacé clic para elegirlos · podés subir varios a la vez'}</span>
+        <input type="file" id="fileIn" accept=".csv,text/csv,text/comma-separated-values,application/vnd.ms-excel" multiple hidden>
+      </label>
+      <p class="small muted" style="margin:10px 0 0">${saveNote}</p>
+      <details class="imp-help"><summary>¿Cómo descargo el CSV de Splitwise?</summary>
+        <ol>
+          <li>Abrí el grupo en Splitwise (en la web o en la app).</li>
+          <li>Entrá a la configuración del grupo (⚙️).</li>
+          <li>Tocá <b>Exportar como hoja de cálculo</b> (o "Export as spreadsheet"). Se descarga un archivo <code>.csv</code>.</li>
+          <li>Subilo acá. Si es de un grupo nuevo, la app te pregunta si es del depto o un viaje.</li>
+        </ol></details>
+      <details class="imp-help"><summary>¿Qué pasa al importar?</summary>
+        <ul>
+          <li>Cada CSV trae el historial completo del grupo: se <b>reemplazan</b> los gastos de ese grupo por los del archivo.</li>
+          <li>Los cambios que hiciste a mano (categoría, reparto, excluir) se conservan.</li>
+          <li>Las filas "Solde total" se ignoran y los pagos entre ustedes quedan en <i>Pagos</i>, sin sumar al gasto.</li>
+        </ul></details>
+    </div>
+    ${canFolder ? `<div class="panel imp-folder">
+      <h2>Carpeta data</h2>
+      ${dirHandle ? `<div class="imp-fold">
+          <span class="imp-ico sm">${dirHandle.cloud ? '☁️' : '📁'}</span>
+          <div><b>${esc(dirHandle.name)}</b> <span class="muted small">· ${where}</span>
+            <div class="small muted">${dirOk ? (lastSync ? `Sincronizada ${timeAgo(lastSync)}` : 'Conectada') : 'Hay que volver a abrirla'}</div></div></div>
+          <p class="small muted">Los CSV que pongas en esta carpeta se leen solos cada vez que abrís la app. Podés dejar los viejos: de cada grupo se usa el más completo.</p>
+          ${dirOk ? `<button class="btn sec" id="impSync">↻ Buscar CSV nuevos</button>` : `<button class="btn" id="impReconnect">${ONLINE ? '🔑 Entrar con Google' : '📁 Abrir carpeta'}</button>`}`
+        : `<p class="small muted">Conectá la carpeta donde guardan los CSV y el archivo de datos: así todo queda guardado ahí y compartido entre ustedes.</p>
+          <button class="btn" id="impConnect">${ONLINE && !cloudValid() ? '🔑 Entrar con Google' : '📁 Conectar carpeta data'}</button>`}
+    </div>` : ''}
   </div>
-  <div class="panel"><h2>Grupos cargados</h2>
-  ${imps.length || Object.keys(counts).length ? `<div class="table-wrap"><table><thead><tr><th>Origen</th><th>Tipo</th><th class="num">Gastos</th><th>Último archivo</th><th>Importado</th><th>Hasta</th></tr></thead><tbody>
-    ${[...new Set([...imps.map(i=>i[0]), ...Object.keys(counts)])].map(o => { const i = S.imports[o]; const g = groupOf(o);
-      return `<tr><td>${esc(o)}</td><td>${o==='Manual'?'manual':g?.trip?'<span class="tag">viaje</span>':'depto'}</td><td class="num">${counts[o]||0}</td><td class="muted">${esc(i?.file||'')}</td><td class="muted">${i?new Date(i.at).toLocaleString('es-AR'):''}</td><td class="muted">${esc(i?.maxDate||'')}</td></tr>`; }).join('')}
-  </tbody></table></div>` : '<p class="muted">Ninguno todavía.</p>'}</div>`;
+  <div class="panel"><h2>Grupos cargados <span class="muted small" style="font-weight:400">· ${origins.length}</span></h2>
+    ${origins.length ? `<div class="grp-grid">${origins.map(o => { const i = S.imports[o], k = kind(o);
+      return `<div class="grp-card">
+        <div class="grp-h"><b>${esc(o)}</b><span class="tag ${k === 'depto' ? '' : k === 'viaje' ? 'trip' : 'warn'}">${k}</span></div>
+        <div class="grp-n"><span class="grp-num">${counts[o] || 0}</span> gastos${i?.maxDate ? ` <span class="muted small">· hasta ${day(i.maxDate)}</span>` : ''}</div>
+        ${i ? `<div class="small muted grp-f" title="${esc(i.file)}">📄 ${esc(i.file)}</div><div class="small muted">Importado ${timeAgo(i.at)}</div>` : `<div class="small muted">${k === 'manual' ? 'Cargados a mano en Gastos' : 'Sin archivo importado'}</div>`}
+      </div>`; }).join('')}</div>` : '<p class="muted">Todavía no hay grupos: subí el primer CSV.</p>'}
+  </div>`;
   const drop = $('#drop'), inp = $('#fileIn');
-  inp.onchange = () => importFiles([...inp.files]);
+  inp.onchange = () => { importFiles([...inp.files]); inp.value = ''; };
   drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
   drop.ondragleave = () => drop.classList.remove('over');
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); importFiles([...e.dataTransfer.files].filter(f => /\.csv$/i.test(f.name))); };
+  $('#impSync') && ($('#impSync').onclick = async () => { await syncData(); await syncFolder(true); render(); });
+  $('#impReconnect') && ($('#impReconnect').onclick = reconnectFolder);
+  $('#impConnect') && ($('#impConnect').onclick = connectFolder);
 }
 
 async function importFiles(files){
@@ -3099,11 +3167,11 @@ async function importFiles(files){
   for (const file of files){
     try {
       const text = await file.text(), entry = { name: file.name, parsed: parseSplitwise(text), mod: file.lastModified };
-      // versión online: el CSV también se guarda en la carpeta data de Google Drive (así queda igual que si lo tirabas en la carpeta)
-      if (dirHandle?.cloud && dirOk){
+      // el CSV también se guarda en la carpeta data (Google Drive o la de la compu): queda igual que si lo tirabas en la carpeta
+      if (dirHandle && dirOk){
         try { const fh = await dirHandle.getFileHandle(file.name, { create: true }), w = await fh.createWritable(); await w.write(text); await w.close();
               entry.mod = (await fh.getFile()).lastModified; }
-        catch(e){ toast(`${file.name}: no se pudo guardar en Google Drive (${e.message}); se importa igual`); }
+        catch(e){ toast(`${file.name}: no se pudo guardar en la carpeta (${e.message}); se importa igual`); }
       }
       entries.push(entry);
     }
