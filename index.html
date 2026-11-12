@@ -370,7 +370,10 @@ button.lk{background:none;border:0;padding:0;font:inherit;color:var(--accent);fo
 .acct-menu .danger-txt{color:var(--neg)}
 .so-g{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
 .so-g input{margin-top:3px}
-@media (max-width:700px){ .acct-menu{top:48px;right:8px} }</style>
+@media (max-width:700px){ .acct-menu{top:48px;right:8px} }/* mapa de viajes hechos: ícono del medio en cada tramo */
+.leg-ico{position:absolute;transform:translate(-50%,-50%);font-size:13px;line-height:1;background:var(--panel);border:1px solid var(--line);border-radius:99px;padding:2px 4px;box-shadow:0 1px 3px rgba(0,0,0,.15);pointer-events:none}
+#tripMap:not(.labels) .leg-ico{display:none}
+#tripMap.hl .leg-ico:not(.on){opacity:.15}.cat-toggle button.sub{font-size:12px;margin-left:-2px}</style>
 </head>
 <body>
 <header>
@@ -482,7 +485,7 @@ function monthRange(a, b){ const out=[]; let [y,m]=a.split('-').map(Number); con
 const currentMonth = () => new Date().toISOString().slice(0,7);
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'), 3200); }
 // El color sigue a la categoría (posición fija en la lista), nunca se recicla: de la 9ª en adelante, gris.
-const catColor = c => { const i = spendCats().indexOf(c); return i >= 0 && i < 8 ? `var(--s${i+1})` : 'var(--s-other)'; };
+const catColor = c => { if (c === TRIP_FOOD) return 'color-mix(in srgb, ' + catColor('Viajes') + ' 45%, var(--panel))'; const i = spendCats().indexOf(c); return i >= 0 && i < 8 ? `var(--s${i+1})` : 'var(--s-other)'; };
 const fmt0 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0, useGrouping: 'always' });
 const eurShort = n => Math.abs(n) >= 10000 ? fmt0.format(n/1000) + 'k' : fmt0.format(n);
 
@@ -607,18 +610,25 @@ function enrich(e){
 }
 function allEnriched(){ return S.expenses.map(enrich).sort((a,b) => b.date.localeCompare(a.date)); }
 
-function monthlyMatrix(personId){
+/* "Viajes · Comida": la comida de los viajes (súper, restaurantes) separada del resto del viaje.
+   Solo en el Resumen, para poder sacar Viajes sin hacer trampa: comer, iban a comer igual. */
+const TRIP_FOOD = 'Viajes · Comida';
+const TRIP_FOOD_CATS = new Set(['Courses', 'Sorties', 'Nourriture et boissons - Autre', 'Groceries', 'Dining out', 'Food and drink - Other', 'Supermercado', 'Restaurantes', 'Comida y bebida - Otros']);
+const isTripFood = e => e.simp === 'Viajes' && TRIP_FOOD_CATS.has(e.cat);
+function monthlyMatrix(personId, { tripFood = false } = {}){
   const m = {}; // month -> cat -> amount
   for (const e of allEnriched()){
     if (e.excluded) continue;
     const v = personId === 'ALL' ? S.people.reduce((a,p)=>a+e.sharesEUR[p.id],0) : e.sharesEUR[personId];
     if (!v) continue;
-    const mo = monthOf(e.date);
-    (m[mo] ??= {})[e.simp] = ((m[mo]||{})[e.simp] || 0) + v;
+    const mo = monthOf(e.date), c = tripFood && isTripFood(e) ? TRIP_FOOD : e.simp;
+    (m[mo] ??= {})[c] = ((m[mo]||{})[c] || 0) + v;
   }
   return m;
 }
 function spendCats(){ return S.simpCats.filter(c => !S.excludedCats.includes(c)); }
+// categorías del Resumen: "Viajes · Comida" va justo después de Viajes
+function resumenCats(){ const cs = spendCats(), i = cs.indexOf('Viajes'); return i < 0 ? cs : [...cs.slice(0, i + 1), TRIP_FOOD, ...cs.slice(i + 1)]; }
 
 function becaFor(month){
   // si el mes no tiene datos, usa la base del último mes cargado
@@ -882,14 +892,14 @@ const toggleMonth = m => { if (hiddenMonths.has(m)) hiddenMonths.delete(m); else
 const incomeFor = (personId, m) => becaFor(m).total * (personId === 'ALL' ? S.people.length : 1);
 
 function renderResumen(main){
-  const mat = monthlyMatrix(ui.person);
+  const mat = monthlyMatrix(ui.person, { tripFood: true });
   const dataMonths = Object.keys(mat).sort();
   const cur = currentMonth();
   const allMonths = dataMonths.length ? monthRange(dataMonths[0], [dataMonths[dataMonths.length-1], cur].sort().pop()) : [];
   const years = [...new Set(allMonths.map(m => m.slice(0,4)))];
   const months = ui.year === 'all' ? allMonths : allMonths.filter(m => m.startsWith(ui.year));
   // categorías que se suman: se puede sacar cualquiera (p. ej. Viajes) y los totales, el saldo y la tabla se recalculan sin ella
-  const allCats = spendCats().filter(c => months.some(m => mat[m]?.[c]));
+  const allCats = resumenCats().filter(c => months.some(m => mat[m]?.[c]));
   const cats = allCats.filter(c => !hiddenCats.has(c));
   const hiddenHere = allCats.filter(c => hiddenCats.has(c));
   ui.focusCat = cats.length === 1 && allCats.length > 1 ? cats[0] : null;   // una sola categoría: escala propia, sin la línea de ingreso
@@ -932,7 +942,7 @@ function renderResumen(main){
   </div>
   <div class="panel"><h2>Gasto por mes vs. ingreso</h2>
     <div class="legend cat-toggle" id="spendLegend">
-      ${allCats.map(c => { const on = !hiddenCats.has(c); return `<button data-cat="${esc(c)}" class="${on ? '' : 'off'}" aria-pressed="${on}" title="${on ? 'Sacar' : 'Volver a sumar'} ${esc(c)}"><i style="background:${catColor(c)};width:10px;height:10px;border-radius:3px;display:inline-block"></i>${esc(c)}</button>`; }).join('')}
+      ${allCats.map(c => { const on = !hiddenCats.has(c); return `<button data-cat="${esc(c)}" class="${on ? '' : 'off'}${c === TRIP_FOOD ? ' sub' : ''}" aria-pressed="${on}" title="${on ? 'Sacar' : 'Volver a sumar'} ${esc(c)}"><i style="background:${catColor(c)};width:10px;height:10px;border-radius:3px;display:inline-block"></i>${c === TRIP_FOOD ? '↳ Comida en viajes' : esc(c)}</button>`; }).join('')}
       ${ui.focusCat ? '' : '<span class="small muted" style="display:inline-flex;align-items:center;gap:6px;padding:2px 8px"><span class="swl"></span>Ingreso del mes</span>'}
     </div>
     <div class="cat-acts small">
@@ -1647,8 +1657,12 @@ function loadLeaflet(){
 /* Mapa base. Los servidores de OpenStreetMap bloquean (403) las páginas abiertas como archivo local,
    porque no mandan "Referer"; por eso se usa Esri y, si sus imágenes fallan, OpenStreetMap como respaldo.
    (CARTO no sirve: sin clave devuelve imágenes con la leyenda "API KEY REQUIRED" que no cuentan como error.) */
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 const TILE_PROVIDERS = [
-  { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  { url: ESRI + 'Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', labels: ESRI + 'Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    dark: ESRI + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', darkLabels: ESRI + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 16, attribution: 'Mapa © Esri, HERE, Garmin, © colaboradores de OpenStreetMap' } },
+  { url: ESRI + 'World_Street_Map/MapServer/tile/{z}/{y}/{x}',
     opts: { maxZoom: 18, attribution: 'Mapa © Esri, HERE, Garmin, © colaboradores de OpenStreetMap' } },
   { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', opts: { maxZoom: 18, attribution: '© OpenStreetMap' } },
 ];
@@ -1657,11 +1671,12 @@ function addBaseTiles(L, map){
   const p = TILE_PROVIDERS[tileProvider];
   const dark = matchMedia('(prefers-color-scheme: dark)').matches && p.dark;
   const layer = L.tileLayer(dark ? p.dark : p.url, p.opts).addTo(map);
+  const lab = p.labels ? L.tileLayer(dark ? p.darkLabels : p.labels, { ...p.opts, attribution: '', zIndex: 2 }).addTo(map) : null;
   let errors = 0, loaded = 0;
   layer.on('tileload', () => loaded++);
   layer.on('tileerror', () => {
     if (++errors >= 4 && loaded === 0 && tileProvider < TILE_PROVIDERS.length - 1){
-      tileProvider++; map.removeLayer(layer); addBaseTiles(L, map);   // pasa al siguiente proveedor
+      tileProvider++; map.removeLayer(layer); lab && map.removeLayer(lab); addBaseTiles(L, map);   // pasa al siguiente proveedor
     }
   });
 }
@@ -1685,10 +1700,19 @@ async function drawTripMap(points){
     pts.sort((a, b) => when(a).localeCompare(when(b)));
     const confirmed = pts[0].confirmed;
     const layers = [];
-    if (pts.length > 1){
-      const line = L.polyline(pts.map(p => [p.lat, p.lon]), { color: pts[0].color, weight: 2.5, opacity: .8,
-        dashArray: confirmed ? null : '4 6', lineCap: 'round', className: 'trip-route' }).addTo(tripMap);
+    // tramos entre ciudades: curva si fue en avión, recta si fue por tierra (como en Planificar)
+    const tex = pts.length > 1 ? tripExpenses().filter(e => e.origin === origin) : [];
+    for (let i = 0; i < pts.length - 1; i++){
+      const a = pts[i], b = pts[i + 1];
+      const mode = legMode(tex, a.to || when(a), when(b), kmBetween(a, b), [a.stop, b.stop]);
+      const path = mode === 'avion' ? arc(a, b) : [[a.lat, a.lon], [b.lat, b.lon]];
+      const line = L.polyline(path, { color: pts[0].color, weight: 2.5, opacity: .85,
+        dashArray: !confirmed ? '4 6' : mode === 'avion' ? '8 6' : null, lineCap: 'round', className: 'trip-route' }).addTo(tripMap);
+      line.bindTooltip(`${MODE_ICON(mode)} ${esc(a.stop)} → ${esc(b.stop)}${mode === 'avion' ? ' · vuelo' : mode ? '' : ' · por tierra'}`, { sticky: true });
       layers.push(line);
+      const mid = path.length > 2 ? path[Math.floor(path.length / 2)] : [(a.lat + b.lat) / 2, (a.lon + b.lon) / 2];
+      if (mode) layers.push(L.marker(mid, { interactive: false, icon: L.divIcon({ className: '', iconSize: [0, 0],
+        html: `<div class="leg-ico" data-origin="${esc(origin)}">${MODE_ICON(mode)}</div>` }) }).addTo(tripMap));
     }
     pts.forEach((p, i) => {
       const icon = L.divIcon({ className: '', iconSize: [0, 0], html:
@@ -1727,12 +1751,31 @@ async function drawTripMap(points){
   if (focus) highlightTrip(focus);
 }
 let tripLayers = {};
+// cómo se viajó entre dos ciudades: un gasto de avión (o de tren, bus, auto) entre las dos fechas; si no hay, la distancia
+function legMode(ex, from, to, km, names = []){
+  const lo = from ? new Date(Date.parse(from) - 864e5).toISOString().slice(0, 10) : '', hi = to ? new Date(Date.parse(to) + 864e5).toISOString().slice(0, 10) : '';
+  const near = ex.filter(e => (!lo || e.date >= lo) && (!hi || e.date <= hi));
+  // primero los gastos que nombran alguna de las dos ciudades ("tren rennes"); el metro o el bus local no cuentan
+  const ns = names.map(n => normTxt(n).split(/[\s,-]+/).sort((a, b) => b.length - a.length)[0] || '').filter(w => w.length >= 3);
+  const named = near.filter(e => ns.some(w => normTxt(e.desc).includes(w)));
+  const pick = list => {
+    const has = re => list.some(e => re.test(normTxt(e.desc)));
+    if (list.some(e => /avion/.test(normTxt(e.cat))) || has(/vuelo|\bvol\b|flight|ryanair|vueling|easyjet|aeropuerto/)) return 'avion';
+    if (has(/\btren|train|sncf|trenitalia|renfe|ouigo|eurostar|flixtrain|\btgv\b/)) return 'tren';
+    if (has(/flixbus|blablabus|\balsa\b|\bmicro\b|\bbus\b(?!.*(metro|urbano|local))/) && list === named) return 'bus';
+    if (has(/blablacar|alquiler de auto|rent a car|\bauto\b|voiture|peaje|nafta|essence/)) return 'auto';
+    return '';
+  };
+  // un pasaje reservado antes del viaje que nombra las dos ciudades ("barcelona - san sebastian") vale aunque la fecha no coincida
+  const both = ns.length === 2 ? ex.filter(e => ns.every(w => normTxt(e.desc).includes(w))) : [];
+  return pick(both) || pick(named) || (km > 900 ? 'avion' : '') || (near.some(e => /avion/.test(normTxt(e.cat))) && km > 300 ? 'avion' : '');
+}
 // resalta un viaje en el mapa (al pasar por su tarjeta) y atenúa el resto
 function highlightTrip(origin){
   const box = $('#tripMap'); if (!box) return;
   const o = origin || ui.trip.origin || '';
   box.classList.toggle('hl', !!o);
-  box.querySelectorAll('.pin').forEach(p => p.classList.toggle('on', p.dataset.origin === o));
+  box.querySelectorAll('.pin, .leg-ico').forEach(p => p.classList.toggle('on', p.dataset.origin === o));
   for (const [k, ls] of Object.entries(tripLayers)) ls.forEach(l => l.setStyle && l.setStyle({ opacity: !o || k === o ? .85 : .15 }));
 }
 window.tripPick = key => { ui.trip.stop = ui.trip.stop === key ? '' : key; render(); setTimeout(() => $('#tripList')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
@@ -3030,7 +3073,7 @@ function renderGastos(main){
   const origins = [...new Set(all.map(e => e.origin))].sort();
   const q = F.q.trim().toLowerCase();
   const list = all.filter(e =>
-    (!F.month || monthOf(e.date) === F.month) && (!F.origin || e.origin === F.origin) && (!F.simp || e.simp === F.simp) &&
+    (!F.month || monthOf(e.date) === F.month) && (!F.origin || e.origin === F.origin) && (!F.simp || (F.simp === TRIP_FOOD ? isTripFood(e) : e.simp === F.simp)) &&
     (!q || e.desc.toLowerCase().includes(q) || e.cat.toLowerCase().includes(q)) &&
     (!F.person || e.sharesEUR[F.person]) && (!F.onlyIssues || e.issue) && (F.showExcluded || !e.excluded));
   const sum = pid => list.filter(e=>!e.excluded).reduce((a,e)=>a+e.sharesEUR[pid],0);
@@ -3046,7 +3089,7 @@ function renderGastos(main){
       <input id="fQ" type="search" placeholder="🔍 Buscar descripción…" value="${esc(F.q)}">
       <select id="fMonth"><option value="">Todos los meses</option>${months.map(m=>`<option value="${m}" ${F.month===m?'selected':''}>${monthLabel(m)}</option>`).join('')}</select>
       <select id="fOrigin"><option value="">Todos los orígenes</option>${origins.map(o=>`<option ${F.origin===o?'selected':''}>${esc(o)}</option>`).join('')}</select>
-      <select id="fSimp"><option value="">Todas las categorías</option>${S.simpCats.map(c=>`<option ${F.simp===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+      <select id="fSimp"><option value="">Todas las categorías</option>${[...S.simpCats, TRIP_FOOD].map(c=>`<option ${F.simp===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
       <select id="fPerson"><option value="">Cualquier persona</option>${S.people.map(p=>`<option value="${p.id}" ${F.person===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
     </div>
     <button class="btn" id="addManual">+ Gasto manual</button>
