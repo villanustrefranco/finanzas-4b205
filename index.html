@@ -309,7 +309,17 @@ svg text.tot.over{fill:var(--neg)}
   table.exp td.c-sh{order:7;font-size:12px;text-align:left}
   table.exp td.c-sh::before{content:attr(data-label) ": ";color:var(--muted)}
   table.exp .c-edit .icon{font-size:17px;padding:4px 8px}
-}</style>
+}/* celular: detalle del mes debajo del gráfico de gasto */
+#spendDetail:empty{display:none}
+#spendDetail{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sd-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:10px 12px;background:var(--accent-soft)}
+.sd-row{display:grid;grid-template-columns:1fr auto 38px 14px;gap:8px;align-items:center;width:100%;background:none;border:0;border-top:1px solid var(--line);
+  padding:11px 12px;font:inherit;color:var(--text);text-align:left;cursor:pointer}
+.sd-row:active{background:var(--accent-soft)}
+.sd-row i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px}
+.sd-row .num{text-align:right;font-variant-numeric:tabular-nums}
+.sd-row .chev{color:var(--muted);font-size:18px;line-height:1}
+.sd-all{color:var(--accent);font-weight:600}</style>
 </head>
 <body>
 <header>
@@ -833,7 +843,7 @@ function renderResumen(main){
       ${ui.focusCat ? '' : '<span class="small muted" style="display:inline-flex;align-items:center;gap:6px;padding:2px 8px"><span class="swl"></span>Ingreso del mes</span>'}
     </div>
     ${ui.focusCat ? `<p class="small muted" style="margin:6px 0 0">Mostrando solo <b>${esc(ui.focusCat)}</b> (escala ajustada) · <a href="#" id="clearFocus">ver todas</a></p>`
-      : `<p class="small muted" style="margin:6px 0 0">${TOUCH ? 'Tocá una barra para ver el detalle (y otra vez para ver esos gastos)' : 'Pasá el mouse por las barras para ver el detalle'} · ${TOUCH ? 'tocá' : 'clic en'} una categoría para verla sola</p>`}
+      : `<p class="small muted" style="margin:6px 0 0">${TOUCH ? 'Tocá un mes para ver su detalle abajo' : 'Pasá el mouse por las barras para ver el detalle'} · ${TOUCH ? 'tocá' : 'clic en'} una categoría para verla sola</p>`}
     <div class="chart" id="spendChart">${spendChart(months, ui.focusCat ? [ui.focusCat] : cats, mat, ui.focusCat ? null : saldo)}</div>
   </div>
   <div class="panel"><h2>Saldo mensual y acumulado</h2>
@@ -1000,14 +1010,40 @@ function bindSpendHover(months, cats, mat, saldo){
       ev, { left: screenX(svg, x - 4), right: screenX(svg, x + w + 4) });
   };
   const leave = () => { layer.innerHTML = ''; highlightCat(null); hideTip(); };
+  const openGastos = (m, simp) => {
+    Object.assign(ui.filters, { month: m, simp: simp || '', origin:'', q:'', person: ui.person==='ALL'?'':ui.person, onlyIssues:false });
+    go('gastos');
+  };
+  if (TOUCH){
+    // celular: tocar un mes abre debajo del gráfico la tabla de ese mes; tocar una categoría abre esos gastos
+    let box = $('#spendDetail');
+    if (!box){ box = document.createElement('div'); box.id = 'spendDetail'; $('#spendChart').after(box); }
+    const show = i => {
+      const col = G.segs[i], m = G.months[i], r = saldo?.[i];
+      if (!col){ box.innerHTML = ''; layer.innerHTML = ''; return; }
+      layer.innerHTML = `<rect x="${col.x - 3}" y="${G.padT - 18}" width="${G.bw + 6}" height="${G.H - G.padB - G.padT + 18}" fill="var(--accent)" opacity=".14" rx="4"/>`;
+      const rows = col.segs.slice().reverse();
+      box.innerHTML = `<div class="sd-head"><div><b>${monthLabel(m)}</b> · total <b>${eur(col.total)}</b>${r ? `<div class="small muted">ingreso ${eur(r.ingreso)} · <span class="${r.saldo>=0?'pos':'neg'}">saldo ${eur(r.saldo)}</span></div>` : ''}</div>
+          <button class="icon" id="sdClose" aria-label="Cerrar">✕</button></div>
+        ${rows.map(sg => `<button class="sd-row" data-c="${esc(sg.c)}"><span><i style="background:${catColor(sg.c)}"></i>${esc(sg.c)}</span><span class="num">${eur(sg.v)}</span><span class="muted small num">${col.total ? Math.round(sg.v / col.total * 100) : 0}%</span><span class="chev">›</span></button>`).join('') || '<p class="muted small">Sin gastos.</p>'}
+        <button class="sd-row sd-all"><span>Ver todos los gastos del mes</span><span></span><span></span><span class="chev">›</span></button>`;
+      box.querySelectorAll('.sd-row').forEach(b => b.onclick = () => openGastos(m, b.dataset.c || ui.focusCat));
+      $('#sdClose').onclick = () => { ui.spendSel = null; show(-1); };
+    };
+    hit.addEventListener('click', ev => {
+      const p = svgPoint(svg, ev), i = Math.floor((p.x - G.padL) / G.slot); if (!G.months[i]) return;
+      ui.spendSel = G.months[i]; show(i);
+    });
+    // si ya había un mes elegido (p. ej. al volver de Gastos), se vuelve a mostrar
+    const prev = ui.spendSel ? G.months.indexOf(ui.spendSel) : -1;
+    if (prev >= 0) show(prev);
+    hit.style.cursor = 'pointer';
+    return;
+  }
   hit.addEventListener('pointermove', move);
-  hit.addEventListener('pointerleave', ev => { if (ev.pointerType !== 'touch') leave(); });   // con el dedo, el detalle queda hasta tocar afuera
-  onTapOutside(hit, leave);
-  let tapped = -1;
+  hit.addEventListener('pointerleave', leave);
   hit.addEventListener('click', ev => {   // clic en una barra -> ver esos gastos
     const p = svgPoint(svg, ev), i = Math.floor((p.x - G.padL) / G.slot); if (!G.months[i]) return;
-    // en el celular el primer toque muestra el detalle y el segundo (en la misma barra) abre los gastos
-    if (TOUCH && tapped !== i){ tapped = i; move(ev); return; }
     hideTip();
     Object.assign(ui.filters, { month: G.months[i], simp: ui.focusCat || '', origin:'', q:'', person: ui.person==='ALL'?'':ui.person, onlyIssues:false });
     go('gastos');
