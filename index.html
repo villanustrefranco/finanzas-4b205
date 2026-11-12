@@ -928,7 +928,7 @@ function renderResumen(main){
     </div>
     <div class="cat-acts small">
       ${hiddenHere.length ? `<span class="cat-note">Sin contar <b>${hiddenHere.map(esc).join(', ')}</b>: los totales, el saldo y la tabla no las incluyen.</span> <button class="lk" id="catAll">Sumar todas</button>`
-        : `<span class="muted">${TOUCH ? 'Tocá' : 'Clic en'} una categoría para sacarla de la cuenta.</span>${allCats.includes('Viajes') ? ' <button class="lk" id="catNoTrips">Sacar Viajes</button>' : ''}`}
+        : `<span class="muted">${TOUCH ? 'Tocá' : 'Clic en'} una categoría para sacarla de la cuenta.</span>`}
       ${cats.length > 1 ? ` <span class="muted">· ${TOUCH ? 'Tocá un mes para ver su detalle abajo' : 'Pasá el mouse por las barras para ver el detalle'}</span>` : ''}
     </div>
     <div class="chart" id="spendChart">${spendChart(months, cats, mat, ui.focusCat ? null : saldo)}</div>
@@ -970,7 +970,6 @@ function renderResumen(main){
   $('#monAll') && ($('#monAll').onclick = () => { months.forEach(m => hiddenMonths.delete(m)); saveHiddenMonths(); render(); });
   $('#monPick').ontoggle = e => { ui.monPickOpen = e.target.open; };
   $('#catAll') && ($('#catAll').onclick = () => { hiddenCats.clear(); saveHiddenCats(); render(); });
-  $('#catNoTrips') && ($('#catNoTrips').onclick = () => { hiddenCats.add('Viajes'); saveHiddenCats(); render(); });
   bindSpendHover(months, cats, mat, ui.focusCat ? null : saldo);
   bindSaldoHover(saldo);
 }
